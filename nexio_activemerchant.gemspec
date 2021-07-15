@@ -7,6 +7,7 @@ Gem::Specification.new do |spec|
   spec.version       = NexioActivemerchant::VERSION
   spec.authors       = %w[Whitespectre]
   spec.email         = %w[hello@whitespectre.com]
+  spec.licenses      = %w[MIT]
 
   spec.summary       = 'ActiveMechant gateway for Nexio'
   spec.homepage      = 'https://github.com/whitespectre/nexio_activemerchant'
