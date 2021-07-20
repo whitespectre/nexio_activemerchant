@@ -38,6 +38,8 @@ module ActiveMerchant
 
       def purchase(money, payment, options = {})
         post = build_payload(options)
+        post[:processingOptions] ||= {}
+        post[:processingOptions][:verboseResponse] = true if test?
         add_invoice(post, money, options)
         add_payment(post, payment, options)
         add_order_data(post, options)
@@ -48,16 +50,17 @@ module ActiveMerchant
         purchase(money, payment, options.merge(payload: options.fetch(:payload, {}).merge(isAuthOnly: true)))
       end
 
-      def capture(_money, _authorization, _options = {})
-        commit('capture', post)
+      def capture(money, authorization, _options = {})
+        commit('capture', { id: authorization, data: { amount: amount(money).to_f } })
       end
 
-      def refund(_money, _authorization, _options = {})
-        commit('refund', post)
+      def refund(money, authorization, _options = {})
+        commit('refund', { id: authorization, data: { amount: amount(money).to_f } })
       end
+      alias credit refund
 
-      def void(_authorization, _options = {})
-        commit('void', post)
+      def void(authorization, _options = {})
+        commit('void', { id: authorization })
       end
 
       def verify(credit_card, options = {})
