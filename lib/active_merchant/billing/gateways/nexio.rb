@@ -40,6 +40,8 @@ module ActiveMerchant
         post = build_payload(options)
         post[:processingOptions] ||= {}
         post[:processingOptions][:verboseResponse] = true if test?
+        post[:processingOptions][:customerRedirectUrl] = options[:three_d_callback_url] if options.key?(:three_d_callback_url)
+        post[:processingOptions][:check3ds] = options[:three_d_secure]
         add_invoice(post, money, options)
         add_payment(post, payment, options)
         add_order_data(post, options)
@@ -87,6 +89,26 @@ module ActiveMerchant
         return unless resp.success?
 
         resp.params.fetch('token', {}).fetch('token', nil)
+      end
+
+      def set_webhooks(data)
+        post = { merchantId: options[:merchant_id].to_s }
+        if data.is_a?(String)
+          post[:webhooks] = {
+            TRANSACTION_AUTHORIZED: { url: data },
+            TRANSACTION_CAPTURED: { url: data }
+          }
+        else
+          webhooks = {}
+          webhooks[:TRANSACTION_AUTHORIZED] = { url: data[:authorized] } if data.key?(:authorized)
+          webhooks[:TRANSACTION_CAPTURED] = { url: data[:captured] } if data.key?(:captured)
+          post[:webhooks] = webhooks
+        end
+        commit('webhook', post)
+      end
+
+      def set_secret
+        commit('secret', { merchantId: options[:merchant_id].to_s }).params['secret']
       end
 
       private
@@ -156,6 +178,12 @@ module ActiveMerchant
 
       def add_payment(post, payment, options)
         post[:tokenex] = token_from(payment)
+        if payment.is_a?(Spree::CreditCard)
+          post[:card] = {
+            cardHolderName: payment.name,
+            cardType: payment.brand
+          }
+        end
         post[:processingOptions] ||= {}
         post[:processingOptions][:merchantId] = self.options[:merchant_id].to_s
         post[:processingOptions][:saveCardToken] = options[:save_credit_card] if options.key?(:save_credit_card)
@@ -166,7 +194,8 @@ module ActiveMerchant
 
         {
           token: payment.gateway_payment_profile_id,
-          lastFour: payment.last_digits
+          lastFour: payment.last_digits,
+          cardType: payment.brand
         }
       end
 
@@ -205,11 +234,11 @@ module ActiveMerchant
       end
 
       def commit(action, parameters)
-        payload = parse(ssl_post(action_url(action, parameters), post_data(action, parameters),
-                                 Authorization: "Basic #{options[:auth_token]}"))
+        payload = parse(ssl_post(commit_action_url(action, parameters), post_data(action, parameters),
+                                  Authorization: "Basic #{options[:auth_token]}"))
 
         Response.new(
-          true,
+          response_status(action, payload),
           nil,
           payload,
           authorization: authorization_from(payload),
@@ -229,6 +258,14 @@ module ActiveMerchant
         )
       end
 
+      def response_status(action, payload)
+        case action
+        when 'process' then authorization_from(payload).present?
+        else
+          true
+        end
+      end
+
       def authorization_from(payload)
         payload.fetch('id', nil)
       end
@@ -237,8 +274,13 @@ module ActiveMerchant
         parameters.to_json
       end
 
-      def action_url(action, _parameters)
-        path = "/pay/v3/#{action}"
+      def commit_action_url(action, _parameters)
+        path = case action
+        when 'webhook' then '/webhook/v3/config'
+        when 'secret' then '/webhook/v3/secret'
+        else
+          "/pay/v3/#{action}"
+        end
         "#{test? ? test_url : live_url}#{path}"
       end
 
