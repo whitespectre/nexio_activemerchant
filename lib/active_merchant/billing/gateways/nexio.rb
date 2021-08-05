@@ -42,6 +42,7 @@ module ActiveMerchant
         post[:processingOptions][:verboseResponse] = true if test?
         post[:processingOptions][:customerRedirectUrl] = options[:three_d_callback_url] if options.key?(:three_d_callback_url)
         post[:processingOptions][:check3ds] = options[:three_d_secure]
+        post[:processingOptions][:paymentType] = options[:payment_type] if options.key?(:payment_type)
         add_invoice(post, money, options)
         add_payment(post, payment, options)
         add_order_data(post, options)
@@ -109,6 +110,11 @@ module ActiveMerchant
 
       def set_secret
         commit('secret', { merchantId: options[:merchant_id].to_s }).params['secret']
+      end
+
+      def get_transaction(id)
+        parse(ssl_get(action_url("/transaction/v3/paymentId/#{id}"), base_headers))
+      rescue ResponseError => e
       end
 
       private
@@ -234,8 +240,7 @@ module ActiveMerchant
       end
 
       def commit(action, parameters)
-        payload = parse(ssl_post(commit_action_url(action, parameters), post_data(action, parameters),
-                                  Authorization: "Basic #{options[:auth_token]}"))
+        payload = parse(ssl_post(commit_action_url(action, parameters), post_data(action, parameters), base_headers))
 
         Response.new(
           response_status(action, payload),
@@ -281,6 +286,10 @@ module ActiveMerchant
         else
           "/pay/v3/#{action}"
         end
+        action_url(path)
+      end
+
+      def action_url(path)
         "#{test? ? test_url : live_url}#{path}"
       end
 
@@ -298,6 +307,10 @@ module ActiveMerchant
 
       def build_payload(options)
         { data: { customer: {} } }.merge!(options.fetch(:payload, {}))
+      end
+
+      def base_headers(custom = {})
+        { Authorization: "Basic #{options[:auth_token]}" }
       end
     end
   end
