@@ -18,8 +18,8 @@ module ActiveMerchant
 
         if empty?(brand)
           errors << [:brand, 'is required'] if own_form
-          els
-          errors << [:brand, 'is invalid'] unless self.class.card_companies.include?(brand)
+        elsif !self.class.card_companies.include?(brand)
+          errors << [:brand, 'is invalid']
         end
 
         errors << [:encrypted_number, 'is required'] if empty?(encrypted_number)
