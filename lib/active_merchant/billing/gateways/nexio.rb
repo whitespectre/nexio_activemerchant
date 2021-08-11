@@ -125,7 +125,7 @@ module ActiveMerchant
       end
 
       def add_currency(post, options)
-        post[:data][:currency] = options[:currency] || currency(money)
+        post[:data][:currency] = options[:currency] if options.key?(:currency)
       end
 
       def add_order_data(post, options)
