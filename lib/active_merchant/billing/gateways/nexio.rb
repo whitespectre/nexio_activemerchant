@@ -26,6 +26,7 @@ module ActiveMerchant
 
       def generate_token(options = {})
         post = build_payload(options)
+        post[:data][:allowedCardTypes] = %w(amex discover jcb mastercard visa)
         add_currency(post, options)
         add_order_data(post, options)
         add_card_data(post, options)

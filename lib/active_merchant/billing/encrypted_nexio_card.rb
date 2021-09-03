@@ -3,6 +3,8 @@
 module ActiveMerchant
   module Billing
     class EncryptedNexioCard < CreditCard
+      ALLOWED_CARD_BRANDS = %w(amex discover jcb mastercard visa).freeze
+
       attr_accessor :encrypted_number, :own_form, :one_time_token
 
       attr_reader :brand
@@ -18,7 +20,7 @@ module ActiveMerchant
 
         if empty?(brand)
           errors << [:brand, 'is required'] if own_form
-        elsif !self.class.card_companies.include?(brand)
+        elsif !ALLOWED_CARD_BRANDS.include?(brand)
           errors << [:brand, 'is invalid']
         end
 
