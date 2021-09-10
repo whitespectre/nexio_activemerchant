@@ -254,6 +254,7 @@ module ActiveMerchant
           network_transaction_id: payload['id']
         )
       rescue ResponseError => e
+        logger&.error e.response.body
         error_payload = parse(e.response.body)
         Response.new(
           false,
@@ -277,7 +278,7 @@ module ActiveMerchant
       end
 
       def post_data(_action, parameters = {})
-        parameters.to_json
+        { merchantId: options[:merchant_id] }.merge(parameters).to_json
       end
 
       def commit_action_url(action, _parameters)
@@ -306,8 +307,8 @@ module ActiveMerchant
         CVVResult.new(data.fetch('gatewayMessage', {}).fetch('cvvresponse', nil))
       end
 
-      def build_payload(options)
-        { data: { customer: {} } }.merge!(options.fetch(:payload, {}))
+      def build_payload(params)
+        { data: { customer: {} } }.merge!(params.fetch(:payload, {}))
       end
 
       def base_headers(custom = {})
