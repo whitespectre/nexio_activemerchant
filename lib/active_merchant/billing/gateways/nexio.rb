@@ -176,7 +176,7 @@ module ActiveMerchant
           AddressOne: :address1, AddressTwo: :address2, City: :city,
           Country: :country, Phone: :phone, Postal: :zip, State: :state
         }.each do |suffix, key|
-          post[:data][:customer]["#{prefix}#{suffix}"] = data[key] if data[key].present?
+          post[:data][:customer]["#{prefix}#{suffix}"] = data[key].to_s
         end
       end
 
