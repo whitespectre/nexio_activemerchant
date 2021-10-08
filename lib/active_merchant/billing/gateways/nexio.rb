@@ -189,7 +189,7 @@ module ActiveMerchant
           post[:card] = {
             cardHolderName: payment.name,
             cardType: payment.brand
-          }
+          }.merge!(post.fetch(:card, {}))
         end
         post[:processingOptions] ||= {}
         post[:processingOptions][:merchantId] = self.options[:merchant_id].to_s
