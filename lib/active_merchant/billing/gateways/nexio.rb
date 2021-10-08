@@ -172,15 +172,12 @@ module ActiveMerchant
       def add_address(post, data, prefix)
         return post if data.blank?
 
-        post[:data][:customer].merge!({
-                                        "#{prefix}AddressOne": data[:address1],
-                                        "#{prefix}AddressTwo": data[:address2],
-                                        "#{prefix}City": data[:city],
-                                        "#{prefix}Country": data[:country],
-                                        "#{prefix}Phone": data[:phone],
-                                        "#{prefix}Postal": data[:zip],
-                                        "#{prefix}State": data[:state]
-                                      })
+        {
+          AddressOne: :address1, AddressTwo: :address2, City: :city,
+          Country: :country, Phone: :phone, Postal: :zip, State: :state
+        }.each do |suffix, key|
+          post[:data][:customer]["#{prefix}#{suffix}"] = data[key] if data[key].present?
+        end
       end
 
       def add_payment(post, payment, options)
