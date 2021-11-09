@@ -4,54 +4,22 @@ require 'json'
 
 module ActiveMerchant
   module Billing
-    class NexioGateway < Gateway
+    class NexioBaseGateway < Gateway
       self.test_url = 'https://api.nexiopaysandbox.com'
       self.live_url = 'https://api.nexiopay.com'
 
       self.supported_countries = %w[CA US]
       self.default_currency = 'USD'
       self.supported_cardtypes = %i[visa master american_express discover]
-
       self.homepage_url = 'https://nex.io'
-      self.display_name = 'Nexio'
+      self.abstract_class = true
 
-      STANDARD_ERROR_CODE_MAPPING = {}.freeze
-
-      OneTimeToken = Struct.new(:token, :expiration, :fraud_url)
+      class_attribute :base_path
+      self.base_path = ''
 
       def initialize(options = {})
         requires!(options, :merchant_id, :auth_token)
         super
-      end
-
-      def generate_token(options = {})
-        post = build_payload(options)
-        post[:data][:allowedCardTypes] = %w(amex discover jcb mastercard visa)
-        add_currency(post, options)
-        add_order_data(post, options)
-        add_card_data(post, options)
-        resp = commit('token', post)
-        return unless resp.success?
-
-        token, expiration, fraud_url = resp.params.values_at('token', 'expiration', 'fraudUrl')
-        OneTimeToken.new(token, Time.parse(expiration), fraud_url)
-      end
-
-      def purchase(money, payment, options = {})
-        post = build_payload(options)
-        post[:processingOptions] ||= {}
-        post[:processingOptions][:verboseResponse] = true if test?
-        post[:processingOptions][:customerRedirectUrl] = options[:three_d_callback_url] if options.key?(:three_d_callback_url)
-        post[:processingOptions][:check3ds] = options[:three_d_secure]
-        post[:processingOptions][:paymentType] = options[:payment_type] if options.key?(:payment_type)
-        add_invoice(post, money, options)
-        add_payment(post, payment, options)
-        add_order_data(post, options)
-        commit('process', post)
-      end
-
-      def authorize(money, payment, options = {})
-        purchase(money, payment, options.merge(payload: options.fetch(:payload, {}).merge(isAuthOnly: true)))
       end
 
       def capture(money, authorization, _options = {})
@@ -67,13 +35,6 @@ module ActiveMerchant
         commit('void', { id: authorization })
       end
 
-      def verify(credit_card, options = {})
-        MultiResponse.run(:use_first_response) do |r|
-          r.process { authorize(100, credit_card, options) }
-          r.process(:ignore_result) { void(r.authorization, options) }
-        end
-      end
-
       def supports_scrubbing?
         false
       end
@@ -82,28 +43,19 @@ module ActiveMerchant
         transcript
       end
 
-      def store(payment, options = {})
-        post = build_payload(options)
-        add_card_details(post, payment, options)
-        add_currency(post, options)
-        add_order_data(post, options)
-        resp = commit('saveCard', post)
-        return unless resp.success?
-
-        resp.params.fetch('token', {}).fetch('token', nil)
-      end
-
       def set_webhooks(data)
         post = { merchantId: options[:merchant_id].to_s }
         if data.is_a?(String)
           post[:webhooks] = {
             TRANSACTION_AUTHORIZED: { url: data },
-            TRANSACTION_CAPTURED: { url: data }
+            TRANSACTION_CAPTURED: { url: data },
+            TRANSACTION_SETTLED: { url: data }
           }
         else
           webhooks = {}
           webhooks[:TRANSACTION_AUTHORIZED] = { url: data[:authorized] } if data.key?(:authorized)
           webhooks[:TRANSACTION_CAPTURED] = { url: data[:captured] } if data.key?(:captured)
+          webhooks[:TRANSACTION_SETTLED] = { url: data[:settled] } if data.key?(:settled)
           post[:webhooks] = webhooks
         end
         commit('webhook', post)
@@ -113,12 +65,17 @@ module ActiveMerchant
         commit('secret', { merchantId: options[:merchant_id].to_s }).params['secret']
       end
 
-      def get_transaction(id)
-        parse(ssl_get(action_url("/transaction/v3/paymentId/#{id}"), base_headers))
-      rescue ResponseError => e
-      end
-
       private
+
+      def build_payload(params)
+        result = params.fetch(:payload, {}).deep_dup
+        result[:data] ||= {}
+        result[:data][:customer] ||= {}
+        result[:processingOptions] ||= {}
+        result[:processingOptions][:merchantId] ||= options[:merchant_id]
+        result[:processingOptions][:verboseResponse] = true if test?
+        result
+      end
 
       def add_invoice(post, money, options)
         post[:data][:amount] = amount(money).to_f
@@ -134,11 +91,13 @@ module ActiveMerchant
           case customer
           when String
             post[:data][:customer][:email] = customer
+            post[:data][:customer][:customerRef] = customer
           when Hash
             post[:data][:customer].merge!({
                                             firstName: customer[:first_name],
                                             lastName: customer[:last_name],
-                                            email: customer[:email]
+                                            email: customer[:email],
+                                            customerRef: customer[:email]
                                           })
           end
         end
@@ -176,65 +135,8 @@ module ActiveMerchant
           AddressOne: :address1, AddressTwo: :address2, City: :city,
           Country: :country, Phone: :phone, Postal: :zip, State: :state
         }.each do |suffix, key|
-          post[:data][:customer]["#{prefix}#{suffix}"] = data[key].to_s
+          post[:data][:customer]["#{prefix}#{suffix}"] = data[key]
         end
-      end
-
-      def add_payment(post, payment, options)
-        post[:tokenex] = token_from(payment)
-        if payment.is_a?(Spree::CreditCard)
-          post[:card] = {
-            cardHolderName: payment.name,
-            cardType: payment.brand
-          }.merge!(post.fetch(:card, {}))
-        end
-        post[:processingOptions] ||= {}
-        post[:processingOptions][:merchantId] = self.options[:merchant_id].to_s
-        post[:processingOptions][:saveCardToken] = options[:save_credit_card] if options.key?(:save_credit_card)
-      end
-
-      def token_from(payment)
-        return { token: payment } if payment.is_a?(String)
-
-        {
-          token: payment.gateway_payment_profile_id,
-          lastFour: payment.last_digits,
-          cardType: payment.brand
-        }
-      end
-
-      def add_card_data(post, options)
-        if card = options[:card]
-          post[:card] = {
-            cardHolderName: card[:name],
-            expirationMonth: card[:month],
-            expirationYear: card[:year]
-          }
-        end
-      end
-
-      def add_card_details(post, payment, _options)
-        if payment.is_a?(EncryptedNexioCard)
-          raise ArgumentError, 'The provided card is invalid' unless payment.valid?
-
-          post[:card] = {
-            cardHolderName: payment.name,
-            encryptedNumber: payment.encrypted_number,
-            expirationMonth: payment.month,
-            expirationYear: payment.short_year,
-            cardType: payment.brand,
-            securityCode: payment.verification_value
-          }
-          post[:token] = payment.one_time_token
-        else
-          raise ArgumentError, "Only #{EncryptedNexioCard} payment method is supported to store cards"
-        end
-      end
-
-      def parse(body)
-        JSON.parse(body)
-      rescue StandardError
-        {}
       end
 
       def commit(action, parameters)
@@ -262,20 +164,14 @@ module ActiveMerchant
         )
       end
 
-      def response_status(action, payload)
-        case action
-        when 'process' then authorization_from(payload).present?
-        else
-          true
-        end
+      def post_data(_action, post = {})
+        JSON.dump(post)
       end
 
-      def authorization_from(payload)
-        payload.fetch('id', nil)
-      end
-
-      def post_data(_action, parameters = {})
-        { merchantId: options[:merchant_id] }.merge(parameters).to_json
+      def parse(body)
+        JSON.parse(body)
+      rescue StandardError
+        {}
       end
 
       def commit_action_url(action, _parameters)
@@ -283,13 +179,29 @@ module ActiveMerchant
         when 'webhook' then '/webhook/v3/config'
         when 'secret' then '/webhook/v3/secret'
         else
-          "/pay/v3/#{action}"
+          "#{self.class.base_path}/#{action}"
         end
         action_url(path)
       end
 
       def action_url(path)
         "#{test? ? test_url : live_url}#{path}"
+      end
+
+      def base_headers(custom = {})
+        { Authorization: "Basic #{options[:auth_token]}" }
+      end
+
+      def response_status(action, payload)
+        case action
+        when 'process' then %w(authOnlyPending authorizedPending pending authOnly settled).include?(payload['transactionStatus'])
+        else
+          true
+        end
+      end
+
+      def authorization_from(payload)
+        payload.fetch('id', nil)
       end
 
       def build_avs_result(data)
@@ -302,14 +214,6 @@ module ActiveMerchant
         return if data.blank?
 
         CVVResult.new(data.fetch('gatewayMessage', {}).fetch('cvvresponse', nil))
-      end
-
-      def build_payload(params)
-        { data: { customer: {} } }.merge!(params.fetch(:payload, {}))
-      end
-
-      def base_headers(custom = {})
-        { Authorization: "Basic #{options[:auth_token]}" }
       end
     end
   end
