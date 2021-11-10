@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require 'nexio_activemerchant/transaction'
 
 module ActiveMerchant
   module Billing
@@ -43,7 +44,7 @@ module ActiveMerchant
         transcript
       end
 
-      def set_webhooks(data)
+      def setup_webhooks(data)
         post = { merchantId: options[:merchant_id].to_s }
         if data.is_a?(String)
           post[:webhooks] = {
@@ -63,6 +64,13 @@ module ActiveMerchant
 
       def set_secret
         commit('secret', { merchantId: options[:merchant_id].to_s }).params['secret']
+      end
+
+      def get_transaction(id)
+        data = parse(ssl_get(action_url("/transaction/v3/paymentId/#{id}"), base_headers))
+        ::NexioActivemerchant::Transaction.new(data)
+      rescue ResponseError
+        nil
       end
 
       private
@@ -176,11 +184,11 @@ module ActiveMerchant
 
       def commit_action_url(action, _parameters)
         path = case action
-        when 'webhook' then '/webhook/v3/config'
-        when 'secret' then '/webhook/v3/secret'
-        else
-          "#{self.class.base_path}/#{action}"
-        end
+               when 'webhook' then '/webhook/v3/config'
+               when 'secret' then '/webhook/v3/secret'
+               else
+                 "#{self.class.base_path}/#{action}"
+               end
         action_url(path)
       end
 
@@ -189,12 +197,14 @@ module ActiveMerchant
       end
 
       def base_headers(custom = {})
-        { Authorization: "Basic #{options[:auth_token]}" }
+        { Authorization: "Basic #{options[:auth_token]}" }.merge(custom)
       end
+
+      SUCCESS_PROCESS_STATUSES = %w[authOnlyPending authorizedPending pending authOnly settled].freeze
 
       def response_status(action, payload)
         case action
-        when 'process' then %w(authOnlyPending authorizedPending pending authOnly settled).include?(payload['transactionStatus'])
+        when 'process' then SUCCESS_PROCESS_STATUSES.include?(payload['transactionStatus'])
         else
           true
         end

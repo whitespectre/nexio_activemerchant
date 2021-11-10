@@ -3,7 +3,7 @@
 module ActiveMerchant
   module Billing
     class EncryptedNexioCard < CreditCard
-      ALLOWED_CARD_BRANDS = %w(amex discover jcb mastercard visa).freeze
+      ALLOWED_CARD_BRANDS = %w[amex discover jcb mastercard visa].freeze
 
       attr_accessor :encrypted_number, :own_form, :one_time_token
 

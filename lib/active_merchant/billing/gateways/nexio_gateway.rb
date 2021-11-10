@@ -13,7 +13,7 @@ module ActiveMerchant
 
       def generate_token(options = {})
         post = build_payload(options)
-        post[:data][:allowedCardTypes] = %w(amex discover jcb mastercard visa)
+        post[:data][:allowedCardTypes] = %w[amex discover jcb mastercard visa]
         add_currency(post, options)
         add_order_data(post, options)
         add_card_data(post, options)
@@ -55,11 +55,6 @@ module ActiveMerchant
         resp.params.fetch('token', {}).fetch('token', nil)
       end
 
-      def get_transaction(id)
-        parse(ssl_get(action_url("/transaction/v3/paymentId/#{id}"), base_headers))
-      rescue ResponseError => e
-      end
-
       private
 
       def add_payment(post, payment, options)
@@ -71,7 +66,9 @@ module ActiveMerchant
           }.merge!(post.fetch(:card, {}))
         end
         post[:processingOptions][:saveCardToken] = options[:save_credit_card] if options.key?(:save_credit_card)
-        post[:processingOptions][:customerRedirectUrl] = options[:three_d_callback_url] if options[:three_d_callback_url].present?
+        if options[:three_d_callback_url].present?
+          post[:processingOptions][:customerRedirectUrl] = options[:three_d_callback_url]
+        end
         post[:processingOptions][:check3ds] = options[:three_d_secure]
         post[:processingOptions][:paymentType] = options[:payment_type] if options[:payment_type].present?
       end
