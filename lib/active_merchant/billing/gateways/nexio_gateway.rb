@@ -24,16 +24,16 @@ module ActiveMerchant
         OneTimeToken.new(token, Time.parse(expiration), fraud_url)
       end
 
-      def purchase(money, payment, options = {})
+      def purchase(money, source, options = {})
         post = build_payload(options)
         add_invoice(post, money, options)
-        add_payment(post, payment, options)
+        add_payment(post, source, options)
         add_order_data(post, options)
         commit('process', post)
       end
 
-      def authorize(money, payment, options = {})
-        purchase(money, payment, options.merge(payload: options.fetch(:payload, {}).merge(isAuthOnly: true)))
+      def authorize(money, source, options = {})
+        purchase(money, source, options.merge(payload: options.fetch(:payload, {}).merge(isAuthOnly: true)))
       end
 
       def verify(credit_card, options = {})
@@ -43,10 +43,10 @@ module ActiveMerchant
         end
       end
 
-      def store(payment, options = {})
+      def store(source, options = {})
         post = build_payload(options)
         post[:merchantId] ||= options[:merchant_id]
-        add_card_details(post, payment, options)
+        add_card_details(post, source, options)
         add_currency(post, options)
         add_order_data(post, options)
         resp = commit('saveCard', post)
@@ -57,14 +57,14 @@ module ActiveMerchant
 
       private
 
-      def add_payment(post, payment, options)
-        post[:tokenex] = token_from(payment)
-        if payment.is_a?(Spree::CreditCard)
-          post[:card] = {
-            cardHolderName: payment.name,
-            cardType: payment.brand
-          }.merge!(post.fetch(:card, {}))
+      def add_payment(post, source, options)
+        post[:tokenex] = token_from(source)
+        post[:card] ||= {}
+        if source.is_a?(Spree::CreditCard)
+          post[:card][:cardHolderName] = source.name
+          post[:card][:cardType] = source.brand
         end
+        post[:card][:securityCode] = options.dig(:card, :cvv) if options.dig(:card, :cvv)
         post[:processingOptions][:saveCardToken] = options[:save_credit_card] if options.key?(:save_credit_card)
         if options[:three_d_callback_url].present?
           post[:processingOptions][:customerRedirectUrl] = options[:three_d_callback_url]
@@ -73,23 +73,24 @@ module ActiveMerchant
         post[:processingOptions][:paymentType] = options[:payment_type] if options[:payment_type].present?
       end
 
-      def token_from(payment)
-        return { token: payment } if payment.is_a?(String)
+      def token_from(source)
+        return { token: source } if source.is_a?(String)
 
         {
-          token: payment.gateway_payment_profile_id,
-          lastFour: payment.last_digits,
-          cardType: payment.brand
+          token: source.gateway_payment_profile_id,
+          lastFour: source.last_digits,
+          cardType: source.brand
         }
       end
 
       def add_card_data(post, options)
         if card = options[:card]
-          post[:card] = {
+          post[:card] ||= {}
+          post[:card].merge!(
             cardHolderName: card[:name],
             expirationMonth: card[:month],
             expirationYear: card[:year]
-          }
+          )
         end
       end
 
