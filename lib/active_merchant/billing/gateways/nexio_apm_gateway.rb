@@ -9,7 +9,7 @@ module ActiveMerchant
       self.base_path = '/apm/v3'
       self.abstract_class = false
 
-      OneTimeToken = Struct.new(:token, :iframe_url, :redirect_urls, :button_urls)
+      OneTimeToken = Struct.new(:token, :iframe_url, :script_url, :redirect_urls, :button_urls)
 
       def generate_token(money, options = {})
         post = build_payload(options)
@@ -25,6 +25,7 @@ module ActiveMerchant
         OneTimeToken.new(
           resp.params['token'],
           resp.params['expressIFrameUrl'],
+          resp.params['scriptUrl'],
           map_urls(resp.params['redirectUrls']),
           map_urls(resp.params['buttonIFrameUrls'])
         )
