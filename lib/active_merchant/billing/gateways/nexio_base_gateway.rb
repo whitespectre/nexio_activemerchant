@@ -80,7 +80,6 @@ module ActiveMerchant
         result[:data] ||= {}
         result[:data][:customer] ||= {}
         result[:processingOptions] ||= {}
-        result[:processingOptions][:merchantId] ||= options[:merchant_id]
         result[:processingOptions][:verboseResponse] = true if test?
         result
       end
